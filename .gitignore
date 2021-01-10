@@ -1,0 +1,7 @@
+**/*.exe
+**/*.dll
+.ionide/
+tests_nunit/
+**/bin
+**/obj
+**/*~
