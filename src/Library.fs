@@ -103,7 +103,7 @@ module Parser =
   //r#"a"##"#
     // Count number of opening #'s and store using UserState
     // When encountering a quote, if the next n characters (from UserState) are #, then consume (n + 1) characters and stop parsing
-    // In F#, prefix with @, @"..." for a unicode verbatim string
+    // In F#, prefix with @, @"..." for a unicode verbatim string or try using """ """, backslash line continuation should also work
         let rawStringOpen = (str "r") >>. (manySatisfy (fun c -> c = '#') .>> (str "\""))
         // need to get the result from rawStringOpen
         let rawStringClose = (str "\"") 
@@ -139,6 +139,8 @@ module Parser =
     // Need to be able to parse child nodes, which is mutually recursive with being able to parse one node
     let knodes, knodesRef = createParserForwardedToRef<KDL list, unit>()
 
+    /// Parse a slapdash comment before a parser p and call ignofeFunction on the results of p if slapdash found
+    let slapDash p ignoreFunction = ((str "/-") >>. ws >>. p |>> ignoreFunction) <|> p
     // If we encounter a comment, we still need to know where the node ends
     // Use UserState to build the node through sucessive computations and handle both props and args
     /// node := ('/-' ws*)? identifier (node-space node-props-and-args)* (node-space* node-children ws*)? node-terminator
@@ -163,16 +165,24 @@ module Parser =
         let addChildren = (attempt (children |>> (fun children -> (fun s -> {s with Children=children})))) <|> (terminator |>> (fun children -> (id)))
 
         //(nodeName .>>. (many (prop <|> attr)) .>>. addChildren)
-        // Want to call functions like f_a(f_b(f_c(contents)))
-        pipe3 (nodeName .>> ws) (many (((attempt prop) <|> attr) .>> ws)) addChildren (fun a b c -> 
-                                                                        let transforms = a::(c::b)
-                                                                        List.foldBack (fun t s -> (t s)) transforms contents
-                                                                    )
+        let propAttr = (many (((attempt prop) <|> attr) .>> ws))
+        pipe3 (nodeName .>> ws)  (slapDash propAttr (fun _ -> [id])) (slapDash addChildren (fun _ -> id)) (fun a b c -> 
+                                                                                                let transforms = a::(c::b)
+                                                                                                List.foldBack (fun t s -> (t s)) transforms contents
+                                                                                            )
 
     /// nodes := linespace* (node nodes?)? linespace*
-    let nodes = (linespace) >>. ws >>. (many (node .>> ws .>> (linespace)))
+    let nodes = (linespace) >>. ws >>. (many ((slapDash node (fun _ -> NodeUserState.Default)) .>> ws .>> (linespace)))
 
-    let knodereal = nodes |>> List.map (fun x -> KNode(x.Name, x.Arguments, x.Properties, x.Children))
+    /// TODO: make this tail recursive using List.rev
+    let rec filterMap f m l =
+        match l with
+        | h::t -> if (f h) then (m h)::(filterMap f m t) else (filterMap f m t)
+        | [] -> []
+    
+    // let knodereal = nodes |>> List.map (fun x -> KNode(x.Name, x.Arguments, x.Properties, x.Children)) 
+    let knodereal = nodes |>> filterMap (fun x -> x.Name <> "") (fun x -> KNode(x.Name, x.Arguments, x.Properties, x.Children)) 
+
     do knodesRef := knodereal;
 
     let KDLDocument = knodereal .>> eof |>> KDoc
