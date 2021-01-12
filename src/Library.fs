@@ -27,13 +27,23 @@ module Parser =
                         with
                         static member Default = {RawStringStack = []}*)
     let str s = pstring s
+    let isUnicodeSpace = (function '\u0009'|'\u0020'|'\u00A0'|'\u1680'|'\u2000'|'\u2001'|'\u2002'|'\u2003'|'\u2004'|'\u2005'|'\u2006'|'\u2007'|'\u2008'|'\u2009'|'\u200A'|'\u202F'|'\u205F'|'\u3000' -> true | _ -> false)
+    let isUnicodeNewline = (function '\u000A'|'\u0085'|'\u000C'|'\u2028'|'\u2029' -> true |_ -> false)
     /// Based on KDL specification
-    let ws:Parser<_> = skipManySatisfy (function '\u0009'|'\u0020'|'\u00A0'|'\u1680'|'\u2000'|'\u2001'|'\u2002'|'\u2003'|'\u2004'|'\u2005'|'\u2006'|'\u2007'|'\u2008'|'\u2009'|'\u200A'|'\u202F'|'\u205F'|'\u3000' -> true | _ -> false)
+    let ws:Parser<_> = (skipManySatisfy isUnicodeSpace)
+    let ws1 : Parser<_> = (skipMany1Satisfy isUnicodeSpace)
     /// FParsec converts \r and \n\r to \n: https://www.quanttec.com/fparsec/reference/charparsers.html#members.manySatisfy
-    let newline:Parser<_> = manySatisfy (function '\u000A'|'\u0085'|'\u000C'|'\u2028'|'\u2029' -> true |_ -> false)
-    let newlineSkip = skipManySatisfy (function '\u000A'|'\u0085'|'\u000C'|'\u2028'|'\u2029' -> true |_ -> false)//newline |>> ignore
-    //let singleLineComment : Parser<_> = (many( (str "//") >>. skipRestOfLine true)) |>> ignore
-    let linespace = (*attempt singleLineComment <|> *)(attempt newlineSkip) <|> ws
+    let newline:Parser<_> = manySatisfy isUnicodeNewline
+    let newlineSkip = skipManySatisfy isUnicodeNewline //newline |>> ignore
+    let newlineSingleSkip:Parser<_> = skipSatisfy isUnicodeNewline
+    let singleLineComment : Parser<_> = (str "//") >>. skipRestOfLine false >>. newlineSkip// |>> ignore
+    let singleLineCommentStr = (str "//") .>> skipRestOfLine false .>> newlineSkip 
+        // let singleLineComment : Parser<_> = (many( (str "//") >>. skipRestOfLine true)) |>> ignore
+    //let linespace = ws >>. (attempt singleLineComment) <|> (attempt newlineSkip) <|> ws .>> ws
+    // let linespace = ws >>. (attempt singleLineComment) <|> (attempt newlineSkip) <|> ws// .>> ws
+    let linespace = (attempt singleLineComment) <|> (attempt newlineSingleSkip) <|> ws1
+    let escline = (str "\\") >>. ws .>> ((attempt singleLineComment) <|> newlineSingleSkip)
+    let nodeSpace = ws1 <|> ws .>> escline .>> ws
     
     type KDL = KString of string
                  | KRawString of string
@@ -115,9 +125,12 @@ module Parser =
     /// TODO: Accept strings and raw strings
     /// TODO: Allow hyphens in bare identifiers and parse bare identifiers according to specification
     let ident : Parser<_> = 
-        //let validIdentifierCharacter c = (c > '\u0020') && (c < '\u0010\uFFFF') && (c <> '\\') // TODO: exclude \<>{};[]=,"
-        //let validInitialCharacter c = validIdentifierCharacter c && c < '0' || c 
+        // TODO: check that c < 0x10FFFF
+        let validIdentifierCharacter c = (c > '\u0020') && (c<>'\"') && (c <> '\\') && (c <> '<')&&(c <> '>')&&(c <> '{')&&(c <> '}')&&(c <> ';')&&(c <> '[')&&(c <> ']')&&(c <> '=')
+        let validInitialCharacter c = validIdentifierCharacter c && (c < '0' || c > '9')
         let bare = identifier (IdentifierOptions(
+                                isAsciiIdStart = validInitialCharacter,
+                                isAsciiIdContinue = validIdentifierCharacter,
                                 normalization = System.Text.NormalizationForm.FormKC
                     )
         )
@@ -159,20 +172,26 @@ module Parser =
         let nodeName = ident |>> (fun name -> (fun s  -> {s with Name=name}))
         (*let child = knode |>> (fun child -> (fun s cont -> (cont {s with Children=child::s.Children})))
         let children = *)
-        let terminator = (*eof <|>*) (attempt (str ";")) <|> newline
+        let terminator = (*eof <|>*) (attempt (str ";")) <|> (attempt singleLineCommentStr) <|> newline
         let children = between (str "{") (str "}") (ws >>. knodes)
         // let addChildren = children |>> (fun children -> (fun s cont -> (cont {s with Children=children})))
         let addChildren = (attempt (children |>> (fun children -> (fun s -> {s with Children=children})))) <|> (terminator |>> (fun children -> (id)))
 
         //(nodeName .>>. (many (prop <|> attr)) .>>. addChildren)
         let propAttr = (many (((attempt prop) <|> attr) .>> ws))
-        pipe3 (nodeName .>> ws)  (slapDash propAttr (fun _ -> [id])) (slapDash addChildren (fun _ -> id)) (fun a b c -> 
+        let propAttr = (many (((attempt prop) <|> attr) .>> ((attempt nodeSpace) <|> ws)))
+
+        (*pipe3 (nodeName .>> ws)  (slapDash propAttr (fun _ -> [id])) (slapDash addChildren (fun _ -> id)) (fun a b c -> 
+                                                                                                let transforms = a::(c::b)
+                                                                                                List.foldBack (fun t s -> (t s)) transforms contents
+                                                                                            )*)
+        pipe3 (nodeName .>> ws)  (slapDash ((many nodeSpace) >>. propAttr) (fun _ -> [id])) (slapDash ((many nodeSpace) >>. addChildren) (fun _ -> id)) (fun a b c -> 
                                                                                                 let transforms = a::(c::b)
                                                                                                 List.foldBack (fun t s -> (t s)) transforms contents
                                                                                             )
 
     /// nodes := linespace* (node nodes?)? linespace*
-    let nodes = (linespace) >>. ws >>. (many ((slapDash node (fun _ -> NodeUserState.Default)) .>> ws .>> (linespace)))
+    let nodes = (many linespace) >>. ws >>. (many ((slapDash node (fun _ -> NodeUserState.Default)) .>> ws .>> (many linespace)))
 
     /// TODO: make this tail recursive using List.rev
     let rec filterMap f m l =
