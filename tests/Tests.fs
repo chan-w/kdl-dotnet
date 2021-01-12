@@ -7,16 +7,16 @@ open KDL.Parser
 
 /// Helper functions for tests
 module ParserTestHelp =
-    let parseString p str =
+    let parseStringWithP p str =
         runParserOnString p UserState.Default "" str
         
     let parsed p str = 
-        match parseString p str with
+        match parseStringWithP p str with
         | Success(_) -> true
         | Failure(_) -> false
 
     let sucessResult p str =
-        match parseString p str with
+        match parseStringWithP p str with
         | Success(result, _, _) -> Some result
         | Failure(_) -> None
 
@@ -53,7 +53,7 @@ module ParserTestHelp =
                         | _ -> false)
                         
     let compareResult parser input s =
-        match parseString parser input with
+        match parseStringWithP parser input with
         | Success(res, _, _) -> (match res with 
                                 | (KString sr) |  (KRawString sr) |  (KIdentifier sr) -> Assert.Equal(s, sr)
                                 |  _ -> failwith "Returned non-string result" )
@@ -108,33 +108,33 @@ let ``raw string (r##") containing quote with one hash ("#)`` () =
    
 [<Fact>]
 let ``hexadecimal underscore`` () =
-    match parseString kint "0xABC_123" with
+    match parseStringWithP kint "0xABC_123" with
     | Success(KInt(r), _, _) -> Assert.True((r = (int64 0xABC123)))
     | Success(_) -> failwith "0xABC_123 not parsed as integer"
     | Failure (errMsg, _, _) -> failwith errMsg
 
 [<Fact>]
 let ``ident raw string`` () =
-    match parseString ident "r\"myidentifier\"" with
+    match parseStringWithP ident "r\"myidentifier\"" with
     |Success(r, _, _) -> Assert.Equal("myidentifier", r)
     |Failure(r, _, _) -> Assert.Equal("myindentifier", r)
 
 [<Fact>]
 let ``slapdash prop-and-args`` () =
-    match (parseString KDLDocument "a /- b=\"cat\" \"c\"") with
+    match (parseStringWithP KDLDocument "a /- b=\"cat\" \"c\"") with
     | Success(k, _, _) -> Assert.True(KDLEqual k (KDoc([KNode ("a", [KString "c"], Map [], [])])))
     | Failure(errMsg, _, _) -> failwith errMsg
 
 [<Fact>]
 let ``open/close comment`` () =
     let doc = """tag /*foo=true*/ bar=false"""
-    match (parseString KDLDocument doc) with
+    match (parseStringWithP KDLDocument doc) with
     | Success(k, _, _) -> Assert.True(KDLEqual k (KDoc [KNode ("tag", [], Map([("bar", KBool false)]), [])]))
     | Failure(errMsg, _, _) -> failwith errMsg
 
 [<Fact>]
 let ``two open/close comments`` () =
     let doc = """tag /*foo=true*/ bar=false "s1" /*"s2"*/ "s3" """
-    match (parseString KDLDocument doc) with
+    match (parseStringWithP KDLDocument doc) with
     | Success(k, _, _) -> Assert.True(KDLEqual k (KDoc [KNode ("tag", [KString ("s1"); KString ("s3")], Map([("bar", KBool false)]), [])]))
     | Failure(errMsg, _, _) -> failwith errMsg

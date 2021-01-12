@@ -175,3 +175,5 @@ module Parser =
     /// Parse a file at path using the KDLDocument parser and UTF-8 encoding
     let parseFile path =                                                                
          runParserOnFile (KDLDocument) UserState.Default (path) (System.Text.Encoding.UTF8)
+    let parseString s =
+        runParserOnString (KDLDocument) UserState.Default "" s

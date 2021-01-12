@@ -1,0 +1,13 @@
+first-node "this 
+
+is
+a
+
+long
+multi-
+line string" key="val" {first-child "another string \n\n
+
+
+
+
+"}

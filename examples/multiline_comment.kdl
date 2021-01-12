@@ -1,0 +1,8 @@
+tag /*foo=true*/ bar=false
+first-node {
+    first-child "a" "b" "c" /*"d" "e" "f"
+    commented-child "some" "other" "things"=true */
+    second-child
+    third-child
+} second-node
+node /* * */
