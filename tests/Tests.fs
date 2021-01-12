@@ -138,3 +138,10 @@ let ``two open/close comments`` () =
     match (parseStringWithP KDLDocument doc) with
     | Success(k, _, _) -> Assert.True(KDLEqual k (KDoc [KNode ("tag", [KString ("s1"); KString ("s3")], Map([("bar", KBool false)]), [])]))
     | Failure(errMsg, _, _) -> failwith errMsg
+
+[<Fact>]
+let ``int and float`` () =
+    let doc = """a 5.5 1 n=55.5 0b10001 0x43245 0890.8 1"""
+    match (parseStringWithP KDLDocument doc) with
+    | Success(k, _, _) -> Assert.True(KDLEqual k (KDoc [KNode ("a", [KFloat (5.5); KInt ((int64 1)); KInt 17L; KInt 275013L; KFloat 890.8; KInt 1L], Map([("n", KFloat 55.5)]), [])]))
+    | Failure(errMsg, _, _) -> failwith errMsg

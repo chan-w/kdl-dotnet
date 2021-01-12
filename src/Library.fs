@@ -29,7 +29,7 @@ module Parser =
     /// Parse one or more whitespace characters
     let ws1 : Parser<_> = multilinecomment <|> (skipMany1Satisfy (fun c -> (isUnicodeSpace c) || (isBom c)))
     let newline:Parser<_> = manySatisfy isUnicodeNewline
-    let newlineSkip = skipManySatisfy isUnicodeNewline //newline |>> ignore
+    let newlineSkip = skipManySatisfy isUnicodeNewline
     let newlineSingleSkip:Parser<_> = skipSatisfy isUnicodeNewline
     let singleLineComment : Parser<_> = (str "//") >>. skipRestOfLine false >>. newlineSkip
     let singleLineCommentStr = (str "//") .>> skipRestOfLine false .>> newlineSkip 
@@ -60,8 +60,8 @@ module Parser =
     let knull : Parser<_> = stringReturn "null" KNull
     let ktrue : Parser<_> = stringReturn "true" (KBool true)
     let kfalse : Parser<_> = stringReturn "false" (KBool false)
-    /// TODO: Handle _'s in binary/hexadecimal/octal integers and fail when encountering a decimal point (.)
-    let kint : Parser<_> = pint64 |>> KInt
+    /// TODO: Handle _'s in binary/hexadecimal/octal integers
+    let kint : Parser<_> = (attempt (pint64 .>> notFollowedBy (pchar '.'))) |>> KInt
     let kfloat : Parser<_> = pfloat |>> KFloat
     
 
