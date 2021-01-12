@@ -53,10 +53,6 @@ module ParserTestHelp =
                         | _ -> false)
                         
     let compareResult parser input s =
-        (*match (sucessResult parser input) with
-        | Some (KString sr) | Some (KRawString sr) | Some (KIdentifier sr) ->  Assert.Equal(s, sr)//Assert.True( s.Equals(s)
-        | None -> (printfn "Failed to parse"); Assert.False(true)
-        | Some(value) -> failwith "Not Implemented"*)
         match parseString parser input with
         | Success(res, _, _) -> (match res with 
                                 | (KString sr) |  (KRawString sr) |  (KIdentifier sr) -> Assert.Equal(s, sr)
@@ -84,10 +80,20 @@ let ``kstring two character unicode escape`` () =
 
 [<Fact>]
 let ``kstring whitespace`` () =
-    let s = """abc\n\
+    let a = """abc\n\
              as     \t\n\r\
              w"""
-    compareResult kstring ("\"" + (s + "\"")) (s)
+    compareResult kstring ("\"" + (a + "\"")) (a)
+
+[<Fact>]
+let ``raw string (r#")`` () =
+    let a = """r#" text \n\n  "#"""
+    compareResult krawstring a """ text \n\n  """
+
+[<Fact>]
+let ``raw string (r#") containing quote (")`` () =
+    let a = """r#" text "  "#"""
+    compareResult krawstring a """ text "  """
 
 [<Fact>]
 let ``raw string (r#") containing quote with two hashes ("##)`` () =
