@@ -1,29 +1,14 @@
 ﻿namespace KDL
 open FParsec
-open System.Text
-
-module ParserTestHelp =
-    let parsed p str = 
-        match run p str with
-        | Success(_) -> true
-        | Failure(_) -> false
-    let sucessResult p str =
-        match run p str with
-        | Success(result, _, _) -> Some result
-        | Failure(_) -> None
-
-    let parseSuccess parseFunction input =
-        match (parseFunction input) with
-        | Success (result, _, _) -> (true, result)
-        | Failure(errMsg, _, _) -> (false, errMsg)
-
 
 module Parser =
     (* Solve issues caused by value restriction: www.quanttec.com/fparsec/tutorial.html#fs-value-restriction *)
-    type RawStringUserState = {Hashes: string} with static member Default = {Hashes=""}
+    //type UserState = {Hashes: char list} with static member Default = {Hashes=[]}
+    type UserState = {Hashes: string} with static member Default = {Hashes=""}
+    //type UserState = {Hashes: int} with static member Default = {Hashes=0}
 
-    type DummyState = unit
-    type Parser<'t> = Parser<'t, DummyState>
+    // type DummyState = unit
+    type Parser<'t> = Parser<'t, UserState>
 
     let str s = pstring s
     let isUnicodeSpace = (function '\u0009'|'\u0020'|'\u00A0'|'\u1680'|'\u2000'|'\u2001'|'\u2002'|'\u2003'|'\u2004'|'\u2005'|'\u2006'|'\u2007'|'\u2008'|'\u2009'|'\u200A'|'\u202F'|'\u205F'|'\u3000' -> true | _ -> false)
@@ -63,8 +48,8 @@ module Parser =
                  | KFloat of float
                  | KBool of bool
                  | KNull
-                 | KIdentifier of string (* Assume only identifiers can be the LHS of properties and the names of nodes *)
-                 | KNode of string * KDL list * Map<string, KDL> * KDL list (* Nodes must have an indentifier and optionally arguments (an ordered list), Properties (a key=value pairing), and a child block (a list of children) *)
+                 | KIdentifier of string
+                 | KNode of string * KDL list * Map<string, KDL> * KDL list (* Name, arguments, properties, and a child block *)
                  | KDoc of KDL list (* Document contains 0 or more nodes*)
 
     type NodeUserState = {Name: string
@@ -125,10 +110,22 @@ module Parser =
     // Count number of opening #'s and store using UserState
     // When encountering a quote, if the next n characters (from UserState) are #, then consume (n + 1) characters and stop parsing
     // In F#, prefix with @, @"..." for a unicode verbatim string or try using """ """, backslash line continuation should also work
-        let rawStringOpen = (str "r") >>. (manySatisfy (fun c -> c = '#') .>> (str "\""))
+        // Set a list of hashes in UserState when reading the open quote
+        // Remove the hashes until empty and the next character is not a hash, such that the parser has encountered exactly as many hashes as in userstate, otherwise fail
+        (*let setHash s = updateUserState (fun ustate -> {ustate with Hashes=(Seq.toList s)})
+        let popHash = updateUserState (fun ustate -> {ustate with Hashes=List.tail ustate.Hashes})
+        let emptyHash = userStateSatisfies (fun ustate -> match ustate with [] -> true | _ -> false) 
+        let rawStringOpen = (str "r") >>. (manySatisfy (fun c -> c = '#') .>> (str "\"")) |>> setHash
+        let rawStringClose = (str "\"") >>. *)
+        let setHash s = updateUserState (fun ustate -> {ustate with Hashes=s})
+        let matchHash s = userStateSatisfies (fun ustate -> String.length ustate.Hashes = String.length s) .>> nextCharSatisfiesNot (fun c -> c = '#')
+        let rawStringOpen = (str "r") >>. (manySatisfy (fun c -> c = '#') .>> (str "\"")) |>> setHash
+        let rawStringEnd = (str "\"") >>. manyChars (pchar '#') |>> matchHash
+        let rawStringRest = manyCharsTill anyChar rawStringEnd
         // need to get the result from rawStringOpen
-        let rawStringClose = (str "\"") 
-        between (str "r\"") (str "\"") (manyChars (noneOf "\""))
+        (*let rawStringClose = (str "\"") 
+        between (str "r\"") (str "\"") (manyChars (noneOf "\""))*)
+        rawStringOpen >>. rawStringRest
 
         
     let krawstring = rawString |>> KString
@@ -144,7 +141,8 @@ module Parser =
                     )
         )
         (* rawString can start with r, which would be a valid part of a bare identifier*)
-        rawString <|> bare <|> stringLiteral
+        (attempt rawString) <|> bare <|> stringLiteral
+        // bare <|> stringLiteral <|> rawString
 
     let kidentifier = ident |>> KIdentifier
 
@@ -159,9 +157,9 @@ module Parser =
     ]
 
     // Need to be able to parse child nodes, which is mutually recursive with being able to parse one node
-    let knodes, knodesRef = createParserForwardedToRef<KDL list, unit>()
+    let knodes, knodesRef = createParserForwardedToRef<KDL list, UserState>()
 
-    /// Parse a slapdash comment before a parser p and call ignofeFunction on the results of p if slapdash found
+    /// Parse a slapdash comment before a parser p and call ignoreFunction on the results of p if slapdash found
     let slapDash p ignoreFunction = ((str "/-") >>. ws >>. p |>> ignoreFunction) <|> p
     // If we encounter a comment, we still need to know where the node ends
     // Use UserState to build the node through sucessive computations and handle both props and args
@@ -170,7 +168,7 @@ module Parser =
         //let prop = pipe3 kidentifier (str "=") value (fun k _ v -> (k, v))
         let contents = NodeUserState.Default
         // let prop = kidentifier .>> (str "=") >>. value
-        // Return a function that updates the state, maybe we can chain these together
+        // Return functions that create update copies of contents
         //let prop = pipe3 id (str "=") value (fun k _ v -> (fun s cont -> (cont {s with Properties=s.Properties.Add(k, v)})))
         let prop = pipe3 ident (str "=") value (fun k _ v -> (fun s -> {s with Properties=s.Properties.Add(k, v)}))
 
@@ -199,6 +197,7 @@ module Parser =
                                                                                                 let transforms = a::(c::b)
                                                                                                 List.foldBack (fun t s -> (t s)) transforms contents
                                                                                             )*)
+        // Apply all functions to contents
         pipe3 (nodeName .>> ws)  ((many nodeSpace) >>. propAttr) (slapDash ((many nodeSpace) >>. addChildren) (fun _ -> id)) (fun a b c -> 
                                                                                                 let transforms = a::(c::b)
                                                                                                 List.foldBack (fun t s -> (t s)) transforms contents
@@ -220,7 +219,6 @@ module Parser =
 
     let KDLDocument = knodereal .>> eof |>> KDoc
 
-    /// TODO: Put this in a separate file or module
     /// Parse a file at path using the KDLDocument parser and UTF-8 encoding (as given in specification)
     let parseFile path =                                                                
-         runParserOnFile (KDLDocument) () (path) (System.Text.Encoding.UTF8)
+         runParserOnFile (KDLDocument) UserState.Default (path) (System.Text.Encoding.UTF8)
