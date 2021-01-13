@@ -2,7 +2,8 @@
 open FParsec
 
 module Parser =
-    type UserState = {Hashes: string} with static member Default = {Hashes=""}
+    type UserState = {Hashes: int} with static member Default = {Hashes=0}
+
     type Parser<'t> = Parser<'t, UserState>
 
     let str s = pstring s
@@ -22,8 +23,18 @@ module Parser =
             (str commentOpen)
             (str commentClose)
             // This appears to skip over the commentClose to the next comment open
-            (attempt (ign commentOpen >>. multilinecomment >>. ign commentClose) <|> ign commentClose) <| o
+            ((attempt (ign commentOpen >>. multilinecomment >>. ign commentClose)) <|> ign commentClose) <| o
     
+    // commentClose <|> commentOpen <|> anyChar
+    (*let multilinecomment =
+        let inc = updateUserState (fun us -> {us with Hashes=us.Hashes + 1})
+        let dec = updateUserState (fun us -> {us with Hashes=us.Hashes - 1})
+        let matched = userStateSatisfies (fun us -> us.Hashes = 0)
+        let commentOpen = (str "/*") >>. inc
+        let commentClose = (str "*/") >>. dec
+        let rec tryClose = (attempt (commentClose >>. matched)) <|> (attempt commentOpen) <|> (anyChar >>. tryClose)
+        matched >>. commentOpen >>. tryClose*)
+
     /// Parse zero or more whitespace characters
     let ws:Parser<_> = (attempt multilinecomment) <|> (skipManySatisfy (fun c -> (isUnicodeSpace c) || (isBom c)))
     /// Parse one or more whitespace characters
@@ -94,15 +105,13 @@ module Parser =
     
     let kstring : Parser<_> = stringLiteral |>> KString
     
-
-    /// TODO: Stop rawStringEnd from accepting close quotes with the wrong number of #'s
     let rawString : Parser<_> =
-        let setHash s = updateUserState (fun ustate -> {ustate with Hashes=s})
-        let matchHash s = userStateSatisfies (fun ustate -> String.length ustate.Hashes = String.length s) .>> nextCharSatisfiesNot (fun c -> c = '#')
-        let rawStringOpen = (str "r") >>. (manySatisfy (fun c -> c = '#') .>> (str "\"")) |>> setHash
-        let rawStringEnd = (str "\"") >>. manyChars (pchar '#') |>> matchHash
-        let rawStringRest = manyCharsTill anyChar rawStringEnd
-        rawStringOpen >>. rawStringRest
+        let inc = updateUserState (fun us -> {us with Hashes=us.Hashes + 1})
+        let dec = updateUserState (fun us -> {us with Hashes=us.Hashes - 1})
+        let matched = userStateSatisfies (fun us -> us.Hashes = 0)
+        let rawStringOpen = matched >>. (str "r") >>. (many (pchar '#' >>. inc)) .>> str "\""
+        let rawStringClose = (str "\"") .>> (many (pchar '#' >>. dec)) .>> matched
+        rawStringOpen >>. manyCharsTill anyChar (attempt rawStringClose) 
 
         
     let krawstring = rawString |>> KString

@@ -103,7 +103,12 @@ let ``raw string (r#") containing quote with two hashes ("##)`` () =
 [<Fact>]
 let ``raw string (r##") containing quote with one hash ("#)`` () =
     let a = """r##" text \"# "#" \ "## \"##"""
-    compareResult krawstring a  """ text \"# "#" \" """
+    compareResult krawstring a  """ text \"# "#" \ """
+
+[<Fact>]
+let ``raw string (r###") containing quote with four hashes ("####)`` () =
+    let a = """r###" text \"# "#" \ "## "#### \"###"""
+    compareResult krawstring a  """ text \"# "#" \ "## "#### \"""
 
    
 [<Fact>]
@@ -140,8 +145,60 @@ let ``two open/close comments`` () =
     | Failure(errMsg, _, _) -> failwith errMsg
 
 [<Fact>]
+let ``nested open/close comments`` () = 
+    let doc = """tag /*foo=true /*bar=false*/ "s1"*/ "s2" "s3" """
+    match (parseStringWithP KDLDocument doc) with
+    | Success(k, _, _) -> Assert.True(KDLEqual k (KDoc [KNode ("tag", [KString ("s2"); KString ("s3")], Map([]), [])]))
+    | Failure(errMsg, _, _) -> failwith errMsg
+
+[<Fact>]
 let ``int and float`` () =
     let doc = """a 5.5 1 n=55.5 0b10001 0x43245 0890.8 1"""
     match (parseStringWithP KDLDocument doc) with
     | Success(k, _, _) -> Assert.True(KDLEqual k (KDoc [KNode ("a", [KFloat (5.5); KInt ((int64 1)); KInt 17L; KInt 275013L; KFloat 890.8; KInt 1L], Map([("n", KFloat 55.5)]), [])]))
     | Failure(errMsg, _, _) -> failwith errMsg
+
+// Passes this test but fails the next one due to the last comments
+[<Fact>]
+let ``two multi-line comments`` () =
+    let doc = """tag /*foo=true*/ bar=false
+first-node {
+    first-child "a" "b" "c" /*"d" "e" "f"
+    commented-child "some" "other" "things"=true */
+    second-child
+    third-child
+} second-node
+node"""
+    match (parseStringWithP KDLDocument doc) with
+    | Success(k, _, _) -> Assert.True(KDLEqual k (KDoc [KNode ("tag", [], Map [("bar", KBool false)], []);
+   KNode
+     ("first-node", [], Map [],
+      [KNode
+         ("first-child", [KString "a"; KString "b"; KString "c"], Map [], []);
+       KNode ("second-child", [], Map [], []);
+       KNode ("third-child", [], Map [], [])]);
+   KNode ("second-node", [], Map [], []); KNode ("node", [], Map [], [])]))
+    | Failure (errMsg, _, _) -> failwith errMsg
+
+[<Fact>]
+let ``multiple multi-line comments`` () =
+    let doc = """tag /*foo=true*/ bar=false
+first-node {
+    first-child "a" "b" "c" /*"d" "e" "f"
+    commented-child "some" "other" "things"=true */
+    second-child
+    third-child
+} second-node
+node /* * */
+
+"""
+    match (parseStringWithP KDLDocument doc) with
+    | Success(k, _, _) -> Assert.True(KDLEqual k (KDoc [KNode ("tag", [], Map [("bar", KBool false)], []);
+   KNode
+     ("first-node", [], Map [],
+      [KNode
+         ("first-child", [KString "a"; KString "b"; KString "c"], Map [], []);
+       KNode ("second-child", [], Map [], []);
+       KNode ("third-child", [], Map [], [])]);
+   KNode ("second-node", [], Map [], []); KNode ("node", [], Map [], [])]))
+    | Failure (errMsg, _, _) -> failwith errMsg
