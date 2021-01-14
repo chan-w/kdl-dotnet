@@ -71,7 +71,7 @@ module Parser =
     let knull : Parser<_> = stringReturn "null" KNull
     let ktrue : Parser<_> = stringReturn "true" (KBool true)
     let kfalse : Parser<_> = stringReturn "false" (KBool false)
-    let underscoreFloat : Parser<_> = many1Satisfy2 (fun c -> (c >= '0' && c <= '9') || (c = '+') || (c = '-')) (fun c -> (c >= '0' && c <= '9') || (c = '.') || (c = '_') || (c = 'E') || (c = 'e')) |>> (fun s -> (float (s.Replace("_", ""))))
+    let underscoreFloat : Parser<_> = many1Satisfy2 (fun c -> (c >= '0' && c <= '9') || (c = '+') || (c = '-')) (fun c -> (c >= '0' && c <= '9') || (c = '.') || (c = '_') || (c = 'E') || (c = 'e') || (c = '+') || (c='-')) |>> (fun s -> (float (s.Replace("_", ""))))
     let underscoreInt : Parser<_> = 
         let decimal = many1Satisfy2 (fun c -> (c >= '0' && c <= '9') || (c = '+') || (c = '-')) (fun c -> (c >= '0' && c <= '9') || (c = '_')) .>> notFollowedBy (pchar '.') |>> int64
         let notDecimal = pipe3 (pchar '0') (anyOf "box") (many1Satisfy (fun c -> (c >= '0' && c <= '9') || (c >= 'A' && c <= 'F') || (c >= 'a' && c <= 'f') || (c = '_'))) (fun a b c -> (int64 (((string a) + (string b) + c.Replace("_","")))))
@@ -82,7 +82,7 @@ module Parser =
     /// TODO: Handle unicode escape of 1 to 6 charaacters
     /// Taken from https://www.quanttec.com/fparsec/tutorial.html#parsing-json
     let stringLiteral =
-        let escape =  anyOf "\"\\bfnrt"
+        let escape =  anyOf "\"\\/bfnrt"
                       |>> function
                           | 'b' -> "\b"
                           | 'f' -> "\u000C"
@@ -123,12 +123,13 @@ module Parser =
         // TODO: check that c < 0x10FFFF
         let validIdentifierCharacter c = (c > '\u0020') && (c<>'\"') && (c <> '\\') && (c <> '<')&&(c <> '>')&&(c <> '{')&&(c <> '}')&&(c <> ';')&&(c <> '[')&&(c <> ']')&&(c <> '=')
         let validInitialCharacter c = validIdentifierCharacter c && (c < '0' || c > '9')
-        let bare = identifier (IdentifierOptions(
+        (*let bare = identifier (IdentifierOptions(
                                 isAsciiIdStart = validInitialCharacter,
-                                isAsciiIdContinue = validIdentifierCharacter,
-                                normalization = System.Text.NormalizationForm.FormKC
+                                isAsciiIdContinue = validIdentifierCharacter//,
+                                //normalization = System.Text.NormalizationForm.FormKC
                     )
-        )
+        )*)
+        let bare = many1Chars2 (satisfy validInitialCharacter) (satisfy validIdentifierCharacter)
         (* rawString can start with r, which would be a valid part of a bare identifier, so rawstring should go first*)
         (attempt rawString) <|> bare <|> stringLiteral
 
