@@ -24,6 +24,11 @@ module ParserTestHelp =
         match (parseFunction input) with
         | Success (result, _, _) -> (true, result)
         | Failure(errMsg, _, _) -> (false, errMsg)
+        
+    /// Set a threshold for considering floats equal
+    let floatSimilar threshold f1 f2 =
+        (abs (f1 - f2)) < threshold
+    let floatClose = floatSimilar 1E-8
 
     let rec KDLEqual k1 k2 =
         match k1 with
@@ -34,7 +39,7 @@ module ParserTestHelp =
                         | KInt (n2) -> n = n2
                         | _ -> false)
         | KFloat (f) -> (match k2 with
-                        | KFloat(f2) -> (abs (f - f2)) < 0.5 (* Set a threshold for considering floats equal*)
+                        | KFloat(f2) -> floatClose f f2
                         | _ -> false)
         | KBool (b) -> (match k2 with
                         | KBool(b2) -> b = b2
@@ -60,6 +65,20 @@ module ParserTestHelp =
         | Failure(errMsg, _, _) -> failwith errMsg
 
 open ParserTestHelp
+
+[<Fact>]
+let ``underscoreFloat parses float with underscores`` () =
+    match parseStringWithP underscoreFloat "1_00._23_45" with
+    | Success (r, _, _) -> Assert.True((floatClose r 100.2345))
+    | Failure (errMsg, _, _) -> failwith errMsg
+
+[<Fact>]
+let ``underscoreFloat parses float with trailing underscore``() =
+    let f = "123_456_789.0_"
+    match parseStringWithP kfloat f with
+    | Success(KFloat(r), _, _) -> Assert.True((floatClose r 123456789.0))
+    | Success(_) -> failwith (f + "not parsed as float")
+    | Failure (errMsg, _, _) -> failwith errMsg
 
 [<Fact>]
 let ``knull parses null`` () =
@@ -119,6 +138,27 @@ let ``hexadecimal underscore`` () =
     | Failure (errMsg, _, _) -> failwith errMsg
 
 [<Fact>]
+let ``octal underscore`` () =
+    match parseStringWithP kint "0o45670_123" with
+    | Success(KInt(r), _, _) -> Assert.True((r = (int64 0o45670123)))
+    | Success(_) -> failwith "0o45670_123 not parsed as integer"
+    | Failure (errMsg, _, _) -> failwith errMsg
+
+[<Fact>]
+let ``binary underscore`` () =
+    match parseStringWithP kint "0b100_111" with
+    | Success(KInt(r), _, _) -> Assert.True((r = (int64 0b100111)))
+    | Success(_) -> failwith "0b100_111 not parsed as integer"
+    | Failure (errMsg, _, _) -> failwith errMsg
+
+[<Fact>]
+let ``decimal underscore`` () =
+    match parseStringWithP kint "-123_123" with
+    | Success(KInt(r), _, _) -> Assert.True((r = (int64 -123123)))
+    | Success(_) -> failwith "-123_123 not parsed as integer"
+    | Failure (errMsg, _, _) -> failwith errMsg
+
+[<Fact>]
 let ``ident raw string`` () =
     match parseStringWithP ident "r\"myidentifier\"" with
     |Success(r, _, _) -> Assert.Equal("myidentifier", r)
@@ -158,7 +198,7 @@ let ``int and float`` () =
     | Success(k, _, _) -> Assert.True(KDLEqual k (KDoc [KNode ("a", [KFloat (5.5); KInt ((int64 1)); KInt 17L; KInt 275013L; KFloat 890.8; KInt 1L], Map([("n", KFloat 55.5)]), [])]))
     | Failure(errMsg, _, _) -> failwith errMsg
 
-// Passes this test but fails the next one due to the last comments
+// Passes this test but fails the next tests (multiple multi-line comments and multiple multi-line comments with two comments at end)
 [<Fact>]
 let ``two multi-line comments`` () =
     let doc = """tag /*foo=true*/ bar=false
@@ -190,6 +230,31 @@ first-node {
     third-child
 } second-node
 node /* * */
+
+"""
+    match (parseStringWithP KDLDocument doc) with
+    | Success(k, _, _) -> Assert.True(KDLEqual k (KDoc [KNode ("tag", [], Map [("bar", KBool false)], []);
+   KNode
+     ("first-node", [], Map [],
+      [KNode
+         ("first-child", [KString "a"; KString "b"; KString "c"], Map [], []);
+       KNode ("second-child", [], Map [], []);
+       KNode ("third-child", [], Map [], [])]);
+   KNode ("second-node", [], Map [], []); KNode ("node", [], Map [], [])]))
+    | Failure (errMsg, _, _) -> failwith errMsg
+
+
+[<Fact>]
+let ``multiple multi-line comments with two comments at end`` () =
+    let doc = """tag /*foo=true*/ bar=false
+first-node {
+    first-child "a" "b" "c" /*"d" "e" "f"
+    commented-child "some" "other" "things"=true */
+    second-child
+    third-child
+} second-node
+node /* * */
+/* more "stuff" "here" */
 
 """
     match (parseStringWithP KDLDocument doc) with
